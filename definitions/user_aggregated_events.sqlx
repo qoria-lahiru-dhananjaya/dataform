@@ -9,5 +9,5 @@ SUM(CASE WHEN is_offschool=true THEN duration ELSE 0 END) as session_durations_a
 SUM(CASE WHEN is_offschool=false THEN duration ELSE 0 END) as session_durations_at_school,
 school_name
 FROM qoria_insights.user_raw_events
-WHERE event_date = CURRENT_DATE() --------- This should be current date  ------
+WHERE event_date = CURRENT_DATE() --------- This should be current date  -----
 GROUP BY customer_serial,school_id,application_id,school_name,username,event_date

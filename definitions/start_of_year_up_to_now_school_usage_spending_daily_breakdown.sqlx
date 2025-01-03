@@ -1,0 +1,119 @@
+config {
+  type: "table",
+  dependencies: ["start_of_year_up_to_now_school_app_usage_cards"]
+   // Creates a temp table in BigQuery. Try changing to "table" instead.
+}
+
+pre_operations {
+DECLARE start_of_current_year DATE;
+DECLARE end_of_current_year DATE;
+DECLARE start_of_previous_year DATE;
+DECLARE end_of_previous_year DATE;
+SET start_of_current_year = DATE_TRUNC(CURRENT_DATE(), YEAR);
+SET end_of_current_year = DATE(DATE_TRUNC(CURRENT_DATE(), YEAR) + INTERVAL 1 YEAR - INTERVAL 1 DAY);
+SET start_of_previous_year = DATE(start_of_current_year - INTERVAL 1 YEAR);
+SET end_of_previous_year = DATE(end_of_current_year - INTERVAL 1 YEAR);
+}
+
+----CREATE TEMP TABLE temp_school_app_usage_spending_application_breakdown_view AS
+WITH date_range AS (
+    SELECT 
+        DISTINCT DATE_ADD(start_of_current_year, INTERVAL n DAY) AS date
+    FROM UNNEST(GENERATE_ARRAY(0, DATE_DIFF(CURRENT_DATE(), start_of_current_year, DAY))) AS n
+),
+
+application_licenses AS (
+
+SELECT * FROM 
+EXTERNAL_QUERY(
+    "projects/dataingestiontool/locations/us-central1/connections/qoria-insights",
+    """
+SELECT application_license_id,
+    customer_serial ,
+    school_id ,
+    application_id ,
+    license_name ,
+    license_status ,
+    number_of_licenses ,
+    cost_per_license ,
+    license_start_date ,
+    license_end_date ,
+    start_date ,
+    end_date 
+    FROM application_licenses;
+"""
+  )
+),
+
+school_application_license_details_current AS (
+SELECT customer_serial,school_id,application_id,application_license_id,
+CASE WHEN license_status ='expired' THEN 0 ELSE number_of_licenses END as number_of_licenses,
+license_start_date,license_end_date,start_date,end_date
+FROM application_licenses 
+  WHERE 
+    start_date <= CURRENT_DATE() AND IFNULL(end_date,end_of_current_year) >= start_of_current_year
+),
+expanded_licenses AS (
+    SELECT 
+        d.date,
+        l.application_license_id,
+        l.customer_serial,
+        l.school_id,
+        l.application_id,
+        l.number_of_licenses
+    FROM date_range d
+    LEFT JOIN school_application_license_details_current l
+        ON d.date BETWEEN l.start_date AND l.end_date
+),
+aggregated_licenses_by_date AS(
+SELECT
+        date,
+        customer_serial,
+        school_id,
+        application_id,
+        SUM(number_of_licenses) as total_number_of_licenses_purchased
+FROM
+expanded_licenses 
+GROUP BY
+        date,
+        customer_serial,
+        school_id,
+        application_id
+        ORDER BY date
+),
+current_data
+ AS (
+SELECT 
+a.event_date as date,
+a.customer_serial,
+a.school_id,
+a.application_id,
+COUNT(username) as users,
+ROUND(AVG(session_durations_at_home),2) as avg_daily_usage_home,
+ROUND(AVG(session_durations_at_school),2) as avg_daily_usage_school
+FROM qoria_insights.user_aggregated_events a
+WHERE event_date BETWEEN  start_of_current_year AND CURRENT_DATE()
+GROUP BY
+a.event_date,
+a.customer_serial,
+a.school_id,
+a.application_id
+),
+FinalData AS(
+SELECT 
+a.customer_serial,
+a.school_id,
+a.application_id,
+a.users,
+a.avg_daily_usage_home,
+a.avg_daily_usage_school,
+b.total_number_of_licenses_purchased,
+FORMAT_DATE('%d %B', a.date) AS date,
+FORMAT_DATE('%B', a.date) AS month
+FROM
+current_data a 
+LEFT JOIN aggregated_licenses_by_date b ON a.customer_serial=b.customer_serial AND a.school_id=b.school_id AND a.application_id=b.application_id
+AND a.date=b.date
+)
+SELECT * FROM FinalData
+ORDER BY date

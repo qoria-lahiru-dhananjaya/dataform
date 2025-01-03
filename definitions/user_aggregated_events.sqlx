@@ -1,0 +1,13 @@
+config {
+  type: "operations",
+   // Creates a temp table in BigQuery. Try changing to "table" instead.
+}
+
+INSERT INTO qoria_insights.user_aggregated_events (customer_serial,school_id, application_id, event_date, username, user_full_name, sessions, session_durations_at_home, session_durations_at_school, school_name )
+SELECT customer_serial,school_id,application_id,event_date,username,MAX(user_full_name) as user_full_name,COUNT(username) as sessions,
+SUM(CASE WHEN is_offschool=true THEN duration ELSE 0 END) as session_durations_at_home,
+SUM(CASE WHEN is_offschool=false THEN duration ELSE 0 END) as session_durations_at_school,
+school_name
+FROM qoria_insights.user_raw_events
+WHERE event_date = CURRENT_DATE() --------- This should be current date  ------
+GROUP BY customer_serial,school_id,application_id,school_name,username,event_date

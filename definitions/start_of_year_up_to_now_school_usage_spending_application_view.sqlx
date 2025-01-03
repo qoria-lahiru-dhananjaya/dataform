@@ -1,0 +1,235 @@
+-- This is an example SQLX file to help you learn the basics of Dataform.
+-- Visit https://cloud.google.com/dataform/docs/sql-workflows for more information on how to configure your SQL workflow.
+
+-- You can delete this file, then commit and push your changes to your repository when you are ready.
+
+-- Config blocks allow you to configure, document, and test your data assets.
+config {
+  type: "table",
+  dependencies: ["user_aggregated_events"]
+   // Creates a temp table in BigQuery. Try changing to "table" instead.
+}
+
+-- The rest of a SQLX file contains your SELECT statement used to create the table.
+
+-------- Preparing the table start_of_year_up_to_now_school_usage_spending_application_view --------------------------
+
+
+pre_operations {
+DECLARE start_of_current_year DATE;
+DECLARE end_of_current_year DATE;
+DECLARE start_of_previous_year DATE;
+DECLARE end_of_previous_year DATE;
+
+SET start_of_current_year = DATE_TRUNC(CURRENT_DATE(), YEAR);
+SET end_of_current_year = DATE(DATE_TRUNC(CURRENT_DATE(), YEAR) + INTERVAL 1 YEAR - INTERVAL 1 DAY);
+
+SET start_of_previous_year = DATE(start_of_current_year - INTERVAL 1 YEAR);
+SET end_of_previous_year = DATE(end_of_current_year - INTERVAL 1 YEAR);
+}
+
+
+
+
+
+--CREATE TEMP TABLE temp_school_app_usage_spending_application_view AS
+WITH application_licenses AS (
+
+SELECT * FROM 
+EXTERNAL_QUERY(
+    "projects/dataingestiontool/locations/us-central1/connections/qoria-insights",
+    """
+SELECT application_license_id,
+    customer_serial ,
+    school_id ,
+    application_id ,
+    license_name ,
+    license_status ,
+    number_of_licenses ,
+    cost_per_license ,
+    license_start_date ,
+    license_end_date ,
+    start_date ,
+    end_date 
+    FROM application_licenses;
+"""
+  )
+),
+customer_serial_applications AS (
+
+SELECT * FROM 
+EXTERNAL_QUERY(
+    "projects/dataingestiontool/locations/us-central1/connections/qoria-insights",
+    """
+SELECT
+    customer_serial ,
+    application_id ,
+    application_name ,
+    application_favicon_url,
+    approval_status,
+    risk_status
+    FROM customer_serial_applications;
+"""
+  )  
+),
+
+school_application_license_details_current AS (
+SELECT customer_serial,school_id,application_id,application_license_id,
+
+
+ROUND(((cost_per_license * number_of_licenses)*1.0/DATE_DIFF(license_end_date, license_start_date, DAY)) * 
+DATE_DIFF(LEAST(IFNULL(end_date,end_of_current_year), end_of_current_year), GREATEST(start_date, start_of_current_year), DAY),2) AS total_cost,
+number_of_licenses
+
+FROM application_licenses 
+  WHERE 
+    start_date <= CURRENT_DATE() AND IFNULL(end_date,end_of_current_year) >= start_of_current_year
+    AND license_status  IN UNNEST(['active','renewed'])
+),
+
+
+school_application_license_records_current AS (
+SELECT customer_serial,school_id,application_id,
+
+SUM(CASE WHEN (start_date <= CURRENT_DATE() AND IFNULL(end_date,end_of_current_year)  >= start_of_current_year AND license_status ='expired' ) THEN 1 ELSE 0 END) AS number_of_expired_licensed_records,
+
+SUM(CASE WHEN (start_date <= CURRENT_DATE()  AND IFNULL(end_date,end_of_current_year)  >= start_of_current_year AND license_status ='active' ) THEN 1 ELSE 0 END) AS number_of_active_licensed_records,
+
+SUM(CASE WHEN (start_date <= CURRENT_DATE() AND IFNULL(end_date,end_of_current_year)  >= start_of_current_year AND license_status ='renewed' ) THEN 1 ELSE 0 END) AS number_of_renewed_licensed_records,
+
+SUM(CASE WHEN (start_date > CURRENT_DATE()  AND license_status ='inactive' ) THEN 1 ELSE 0 END) AS number_of_inactive_licensed_records,
+
+FROM application_licenses WHERE end_date IS NULL
+GROUP BY customer_serial,school_id,application_id
+
+  --WHERE 
+    --license_start_date <= end_of_current_year AND license_end_date >= start_of_current_year
+    --AND license_status  
+    --IN UNNEST(['active','renewed','expired'])
+),
+
+
+school_application_license_aggregate_current AS (
+
+SELECT customer_serial,school_id,application_id,
+
+CASE WHEN COUNT(application_license_id) >0 THEN 1 ELSE 0 END AS is_licensed,
+
+SUM(total_cost) as total_cost,SUM(number_of_licenses) as number_of_licenses
+FROM school_application_license_details_current
+GROUP BY customer_serial,school_id,application_id
+
+
+),
+
+
+current_data
+ AS (
+SELECT a.customer_serial,
+a.school_id,
+a.application_id,
+MAX(school_name) as school_name,
+MAX(c.application_name) as application_name,
+MAX(c.application_favicon_url) as favicon_url,
+IFNULL(MAX(is_licensed),0) as is_licensed,
+MAX(total_cost) as total_cost,
+MAX(number_of_licenses) as total_number_of_licenses_purchased,
+COUNT(username) as users,
+ROUND(AVG(session_durations_at_home),2) as avg_daily_usage_home,
+ROUND(AVG(session_durations_at_school),2) as avg_daily_usage_school,
+MAX(approval_status) as application_approval_status,
+MAX(number_of_expired_licensed_records) as number_of_expired_licensed_records,
+MAX(number_of_active_licensed_records) as number_of_active_licensed_records,
+MAX(number_of_renewed_licensed_records) as number_of_renewed_licensed_records,
+MAX(number_of_inactive_licensed_records) as number_of_inactive_licensed_records,
+MAX(c.risk_status) as up_guard_risk_rating
+
+
+
+FROM qoria_insights.user_aggregated_events a
+LEFT JOIN  school_application_license_aggregate_current b ON a.customer_serial=b.customer_serial AND a.school_id=b.school_id AND a.application_id=b.application_id
+LEFT JOIN customer_serial_applications c ON c.customer_serial=a.customer_serial AND c.application_id=a.application_id
+LEFT JOIN school_application_license_records_current d ON a.customer_serial=d.customer_serial AND a.school_id=d.school_id AND a.application_id=d.application_id
+WHERE event_date BETWEEN  start_of_current_year AND CURRENT_DATE()
+GROUP BY 
+a.customer_serial,
+a.school_id,
+a.application_id
+
+),
+
+
+
+----------------- Previous year calculation ------------------------------
+
+
+
+
+
+school_application_license_details_previous AS (
+SELECT customer_serial,school_id,application_id,application_license_id,
+
+
+ROUND(((cost_per_license * number_of_licenses)*1.0/DATE_DIFF(license_end_date, license_start_date, DAY)) * 
+DATE_DIFF(LEAST(IFNULL(end_date,end_of_previous_year), end_of_previous_year), GREATEST(start_date, start_of_previous_year), DAY),2) AS total_cost,
+number_of_licenses
+FROM application_licenses 
+  WHERE 
+    start_date <= end_of_previous_year AND IFNULL(end_date,end_of_previous_year) >= start_of_previous_year
+    AND license_status  IN UNNEST(['active','renewed'])
+
+
+),
+
+school_application_license_aggregate_previous AS (
+
+SELECT customer_serial,school_id,application_id,
+
+SUM(total_cost) as total_cost
+FROM school_application_license_details_previous
+GROUP BY customer_serial,school_id,application_id
+
+
+),
+
+previous_data
+ AS (
+SELECT a.customer_serial,
+a.school_id,
+a.application_id,
+MAX(total_cost) as previous_total_cost,
+COUNT(username) as previous_users
+FROM qoria_insights.user_aggregated_events a
+JOIN  school_application_license_aggregate_previous b ON a.customer_serial=b.customer_serial AND a.school_id=b.school_id AND a.application_id=b.application_id
+WHERE event_date BETWEEN  start_of_previous_year AND end_of_previous_year
+GROUP BY 
+a.customer_serial,
+a.school_id,
+a.application_id
+
+)
+
+
+SELECT a.customer_serial,
+a.school_id,
+a.application_id,
+a.school_name,
+a.application_name,
+a.favicon_url,
+a.users,
+b.previous_users as pre_users,
+a.is_licensed,
+a.avg_daily_usage_home,
+a.avg_daily_usage_school,
+a.application_approval_status,
+a.total_number_of_licenses_purchased,
+a.total_cost,
+b.previous_total_cost as pre_total_cost,
+a.number_of_expired_licensed_records,
+a.number_of_active_licensed_records,
+a.number_of_renewed_licensed_records,
+a.number_of_inactive_licensed_records,
+a.up_guard_risk_rating
+FROM current_data a
+LEFT JOIN previous_data b ON a.customer_serial=b.customer_serial AND a.school_id=b.school_id AND a.application_id=b.application_id
+

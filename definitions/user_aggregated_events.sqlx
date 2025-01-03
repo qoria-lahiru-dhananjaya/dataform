@@ -4,7 +4,7 @@ config {
 }
 
 
-DECLARE projectid STRING;
+DECLARE table STRING;
 
 SET table =  ${when(
                     dataform.projectConfig.vars.projectid === "dataform-qa-446704",

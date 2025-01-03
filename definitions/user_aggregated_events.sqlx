@@ -4,12 +4,19 @@ config {
 }
 
 
-DECLARE table STRING;
+DECLARE aggregate_table STRING;
+DECLARE raw_table STRING;
 
-SET table =  ${when(
+SET aggregate_table =  ${when(
                     dataform.projectConfig.vars.projectid === "dataform-qa-446704",
                        `"dataform-qa-446704.qoria_insights.user_aggregated_events"`, 
-                       `"dataingestiontool"`
+                       `"dataingestiontool.qoria_insights.user_aggregated_events"`
+                    )};
+
+SET raw_table =  ${when(
+                    dataform.projectConfig.vars.projectid === "dataform-qa-446704",
+                       `"dataform-qa-446704.qoria_insights.user_raw_events"`, 
+                       `"dataingestiontool.qoria_insights.user_raw_events"`
                     )};
 
 
@@ -19,7 +26,7 @@ SELECT customer_serial,school_id,application_id,event_date,username,MAX(user_ful
 SUM(CASE WHEN is_offschool=true THEN duration ELSE 0 END) as session_durations_at_home,
 SUM(CASE WHEN is_offschool=false THEN duration ELSE 0 END) as session_durations_at_school,
 school_name
-FROM `"""|| table ||"""`
+FROM `"""|| raw_table ||"""`
 WHERE event_date = CURRENT_DATE() --------- This should be current date  -----
 GROUP BY customer_serial,school_id,application_id,school_name,username,event_date
 """

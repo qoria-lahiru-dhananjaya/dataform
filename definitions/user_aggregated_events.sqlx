@@ -8,8 +8,8 @@ DECLARE projectid STRING;
 
 SET projectid =  ${when(
                     dataform.projectConfig.vars.projectid === "dataform-qa-446704",
-                       "dataform-qa-446704", 
-                       "dataingestiontool"
+                       `"dataform-qa-446704"`, 
+                       `"dataingestiontool"`
                     )};
 
 

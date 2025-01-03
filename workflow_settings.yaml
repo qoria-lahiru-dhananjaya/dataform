@@ -2,3 +2,5 @@ defaultLocation: us-central1
 defaultDataset: dataform
 defaultAssertionDataset: dataform_assertions
 dataformCoreVersion: 3.0.0
+vars:
+  projectid: dataform-qa-446704

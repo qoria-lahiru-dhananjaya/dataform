@@ -1,0 +1,52 @@
+config {
+  type: "operations",
+  dependencies: ["pushing_start_of_year_up_to_now_school_app_spending_cards"]
+}
+
+-- Perform some validation or post-export steps
+
+
+
+----------------------- Data Calculation for start_of_year_up_to_now_school_app_usage_cards table------------------------------
+
+EXPORT DATA OPTIONS (
+  uri="https://spanner.googleapis.com/projects/dataingestiontool/instances/poc-spanner/databases/qoria-insights",
+  format='CLOUD_SPANNER',
+  spanner_options="""{ "table": "start_of_year_up_to_now_school_app_usage_cards" }"""
+) AS
+
+SELECT DISTINCT  
+customer_serial,
+application_id,
+CASE WHEN approval_status = 'not approved' THEN 1 ELSE 0 END AS is_not_approved,
+CASE WHEN approval_status = 'under reviewed' THEN 1 ELSE 0 END AS is_under_reviewed,
+CASE WHEN approval_status = 'flagged' THEN 1 ELSE 0 END AS is_flagged,
+CASE WHEN risk_status IN ( 'unsafe','very unsafe') THEN 1 ELSE 0 END AS is_upGuard_critical_app,
+1 as is_start_of_year_up_to_now,
+0 as is_end_of_of_year 
+ FROM   EXTERNAL_QUERY(
+    "dataingestiontool.us-central1.qoria-insights",
+    """
+SELECT * FROM school_applications;
+"""
+  )
+ WHERE is_start_of_year_up_to_now=1
+
+UNION ALL
+
+SELECT DISTINCT
+customer_serial,
+application_id,
+CASE WHEN approval_status = 'not approved' THEN 1 ELSE 0 END AS is_not_approved,
+CASE WHEN approval_status = 'under reviewed' THEN 1 ELSE 0 END AS is_under_reviewed,
+CASE WHEN approval_status = 'flagged' THEN 1 ELSE 0 END AS is_flagged,
+CASE WHEN risk_status IN ( 'unsafe','very unsafe') THEN 1 ELSE 0 END AS is_upGuard_critical_app,
+0 as is_start_of_year_up_to_now,
+1 as is_end_of_of_year 
+ FROM   EXTERNAL_QUERY(
+    "dataingestiontool.us-central1.qoria-insights",
+    """
+SELECT * FROM school_applications;
+"""
+  )
+ WHERE is_end_of_of_year=1

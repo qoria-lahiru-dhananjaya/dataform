@@ -1,0 +1,168 @@
+config {
+  type: "table",
+  dependencies: ["pushing_start_of_year_up_to_now_school_usage_spending_application_view"]
+}
+
+-- Perform some validation or post-export steps
+
+
+-------- Preparing the table start_of_year_up_to_now_school_app_spending_cards --------------------------
+
+
+
+-----------------------Current Data Calculation------------------------------
+pre_operations {
+DECLARE start_of_current_year DATE;
+DECLARE end_of_current_year DATE;
+DECLARE start_of_previous_year DATE;
+DECLARE end_of_previous_year DATE;
+
+SET start_of_current_year = DATE_TRUNC(CURRENT_DATE(), YEAR);
+SET end_of_current_year = DATE(DATE_TRUNC(CURRENT_DATE(), YEAR) + INTERVAL 1 YEAR - INTERVAL 1 DAY);
+
+SET start_of_previous_year = DATE(start_of_current_year - INTERVAL 1 YEAR);
+SET end_of_previous_year = DATE(end_of_current_year - INTERVAL 1 YEAR);
+}
+
+WITH application_licenses AS (
+
+SELECT * FROM 
+EXTERNAL_QUERY(
+    "projects/dataingestiontool/locations/us-central1/connections/qoria-insights",
+    """
+SELECT application_license_id,
+    customer_serial ,
+    school_id ,
+    application_id ,
+    license_name ,
+    license_status ,
+    number_of_licenses ,
+    cost_per_license ,
+    license_start_date ,
+    license_end_date ,
+    start_date ,
+    end_date 
+    FROM application_licenses;
+"""
+  )
+),
+
+
+---CREATE TEMP TABLE temp_school_app_spending_cards AS
+school_application_license_details_current AS (
+SELECT customer_serial,school_id,application_id,application_license_id,
+
+
+ROUND(((cost_per_license * number_of_licenses)*1.0/DATE_DIFF(license_end_date, license_start_date, DAY)) * 
+DATE_DIFF(LEAST(IFNULL(end_date,end_of_current_year), end_of_current_year), GREATEST(start_date, start_of_current_year), DAY),2) AS total_cost,
+number_of_licenses
+
+FROM application_licenses 
+  WHERE 
+    start_date <= CURRENT_DATE()  AND IFNULL(end_date,end_of_current_year) >= start_of_current_year
+    AND license_status  IN UNNEST(['active','renewed'])
+),
+
+
+school_application_license_aggregate_current AS (
+
+SELECT customer_serial,school_id,application_id,
+
+CASE WHEN COUNT(application_license_id) >0 THEN 1 ELSE 0 END AS is_licensed,
+
+SUM(total_cost) as total_cost,SUM(number_of_licenses) as number_of_licenses
+FROM school_application_license_details_current
+GROUP BY customer_serial,school_id,application_id
+
+
+),
+
+
+current_data
+ AS (
+SELECT a.customer_serial,
+a.school_id,
+a.application_id,
+MAX(is_licensed) as is_licensed,
+MAX(total_cost) as total_cost,
+MAX(number_of_licenses) as number_of_licenses,
+COUNT(username) as users,
+ROUND(MAX(total_cost) -(MAX(total_cost)/MAX(number_of_licenses) *COUNT(username) ),2) as cost_savings,
+1 as is_start_of_year_up_to_now,
+0 as is_end_of_of_year
+FROM qoria_insights.user_aggregated_events a
+LEFT JOIN  school_application_license_aggregate_current b ON a.customer_serial=b.customer_serial AND a.school_id=b.school_id AND a.application_id=b.application_id
+WHERE event_date BETWEEN  start_of_current_year AND CURRENT_DATE()
+GROUP BY 
+a.customer_serial,
+a.school_id,
+a.application_id
+
+),
+
+
+----------------- Previous year calculation ------------------------------
+
+
+
+
+
+school_application_license_details_previous AS (
+SELECT customer_serial,school_id,application_id,application_license_id,
+
+
+ROUND(((cost_per_license * number_of_licenses)*1.0/DATE_DIFF(license_end_date, license_start_date, DAY)) * 
+DATE_DIFF(LEAST(IFNULL(end_date,end_of_previous_year), end_of_previous_year), GREATEST(start_date, start_of_previous_year), DAY),2) AS total_cost,
+number_of_licenses
+
+FROM application_licenses 
+  WHERE 
+    start_date <= end_of_previous_year AND IFNULL(end_date,end_of_previous_year) >= start_of_previous_year
+    AND license_status  IN UNNEST(['active','renewed'])
+
+
+),
+
+
+school_application_license_aggregate_previous AS (
+
+SELECT customer_serial,school_id,application_id,
+
+CASE WHEN COUNT(application_license_id) >0 THEN 1 ELSE 0 END AS is_licensed,
+
+SUM(total_cost) as total_cost,SUM(number_of_licenses) as number_of_licenses
+FROM school_application_license_details_previous
+GROUP BY customer_serial,school_id,application_id
+
+
+),
+
+
+
+
+previous_data
+ AS (
+SELECT a.customer_serial,
+a.school_id,
+a.application_id,
+MAX(is_licensed) as is_licensed,
+MAX(total_cost) as total_cost,
+MAX(number_of_licenses) as number_of_licenses,
+COUNT(username) as users,
+ROUND(MAX(total_cost) -(MAX(total_cost)/MAX(number_of_licenses) *COUNT(username) ),2) as cost_savings,
+0 as is_start_of_year_up_to_now,
+1 as is_end_of_of_year
+FROM qoria_insights.user_aggregated_events a
+LEFT JOIN  school_application_license_aggregate_previous b ON a.customer_serial=b.customer_serial AND a.school_id=b.school_id AND a.application_id=b.application_id
+WHERE event_date BETWEEN  start_of_previous_year AND end_of_previous_year
+GROUP BY 
+a.customer_serial,
+a.school_id,
+a.application_id
+
+)
+
+SELECT * FROM current_data
+UNION ALL
+SELECT * FROM previous_data
+

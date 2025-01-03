@@ -1,0 +1,11 @@
+config {
+  type: "operations"
+}
+
+-- Step 2: Insert into target table from the temporary table using reverse ETL to spanner--------------
+EXPORT DATA OPTIONS (
+  uri="https://spanner.googleapis.com/projects/dataingestiontool/instances/poc-spanner/databases/qoria-insights",
+  format='CLOUD_SPANNER',
+  spanner_options="""{ "table": "start_of_year_up_to_now_school_app_spending_cards" }"""
+) AS
+SELECT * FROM ${ref("start_of_year_up_to_now_school_app_spending_cards")};

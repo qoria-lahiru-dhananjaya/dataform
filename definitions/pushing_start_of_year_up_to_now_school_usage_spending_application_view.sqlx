@@ -1,0 +1,11 @@
+config {
+  type: "operations"
+}
+
+-- Step 1: Export data from BigQuery to Cloud Spanner
+EXPORT DATA OPTIONS (
+  uri = "https://spanner.googleapis.com/projects/dataingestiontool/instances/poc-spanner/databases/qoria-insights",
+  format = 'CLOUD_SPANNER',
+  spanner_options = """{ "table": "start_of_year_up_to_now_school_usage_spending_application_view" }"""
+) AS
+SELECT * FROM ${ref("start_of_year_up_to_now_school_usage_spending_application_view")};

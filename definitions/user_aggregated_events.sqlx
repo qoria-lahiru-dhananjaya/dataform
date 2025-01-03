@@ -21,7 +21,7 @@ SET raw_table =  ${when(
 
 
 EXECUTE IMMEDIATE """
-INSERT INTO `"""|| table ||"""` (customer_serial,school_id, application_id, event_date, username, user_full_name, sessions, session_durations_at_home, session_durations_at_school, school_name )
+INSERT INTO `"""|| aggregate_table ||"""` (customer_serial,school_id, application_id, event_date, username, user_full_name, sessions, session_durations_at_home, session_durations_at_school, school_name )
 SELECT customer_serial,school_id,application_id,event_date,username,MAX(user_full_name) as user_full_name,COUNT(username) as sessions,
 SUM(CASE WHEN is_offschool=true THEN duration ELSE 0 END) as session_durations_at_home,
 SUM(CASE WHEN is_offschool=false THEN duration ELSE 0 END) as session_durations_at_school,

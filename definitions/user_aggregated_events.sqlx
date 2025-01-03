@@ -3,7 +3,7 @@ config {
    // Creates a temp table in BigQuery. Try changing to "table" instead.
 }
 
-pre_operations {
+
 DECLARE projectid STRING;
 
 SET projectid =  ${when(
@@ -12,7 +12,7 @@ SET projectid =  ${when(
                        "dataingestiontool"
                     )};
 
-}
+
 
 INSERT INTO projectid.qoria_insights.user_aggregated_events (customer_serial,school_id, application_id, event_date, username, user_full_name, sessions, session_durations_at_home, session_durations_at_school, school_name )
 SELECT customer_serial,school_id,application_id,event_date,username,MAX(user_full_name) as user_full_name,COUNT(username) as sessions,
